@@ -2,7 +2,17 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// __dirname 대체: ESM/CJS 환경 모두에서 안전하게 동작
+let __dirnameSafe: string;
+try {
+  // ESM 환경
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  __dirnameSafe = path.dirname(fileURLToPath(import.meta.url));
+} catch {
+  // CJS 또는 import.meta.url 미지원 환경
+  __dirnameSafe = process.cwd();
+}
 
 interface Chunk {
   content: string;
@@ -89,19 +99,28 @@ function buildBM25Index(chunks: Chunk[]): BM25Index {
 }
 
 export async function loadChunks(): Promise<void> {
-  // 1) TS 실행(개발) 경로 기준, 2) 배포/서버리스에서의 CWD 기준 순으로 시도
-  const primaryPath = path.join(__dirname, '../data/chunks.json');
-  const fallbackPath = path.join(process.cwd(), 'data/chunks.json');
+  // 1) 빌드 산출물 기준(서버리스 번들에 포함) 2) CWD 3) 소스 기준 순으로 시도
+  const candidates = [
+    path.join(process.cwd(), 'data/chunks.json'),
+    path.join(__dirnameSafe, '../data/chunks.json'),
+    path.join(__dirnameSafe, 'data/chunks.json')
+  ];
   let data: string;
-  try {
-    data = await fs.readFile(primaryPath, 'utf-8');
-  } catch {
-    data = await fs.readFile(fallbackPath, 'utf-8');
+  let lastErr: any;
+  for (const p of candidates) {
+    try {
+      data = await fs.readFile(p, 'utf-8');
+      const parsed: ChunksData = JSON.parse(data);
+      chunksData = parsed;
+      bm25Index = buildBM25Index(parsed.chunks);
+      console.log(`Chunks 로드 완료: ${parsed.chunks.length}개 (path=${p})`);
+      return;
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
   }
-  const parsed: ChunksData = JSON.parse(data);
-  chunksData = parsed;
-  bm25Index = buildBM25Index(parsed.chunks);
-  console.log(`Chunks 로드 완료: ${parsed.chunks.length}개`);
+  throw lastErr || new Error('chunks.json을 찾을 수 없습니다.');
 }
 
 // 단순 키워드 점수 계산
