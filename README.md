@@ -1,4 +1,4 @@
-# CAG NEChat - 선거법 사례 안내 챗봇
+# NEChat_CAG - 선관위 데이터 기반 선거법 챗봇
 
 중앙선거관리위원회의 "제21대 대통령선거 정치관계법 사례예시집"을 기반으로 하는 Context-Augmented Generation (CAG) 챗봇입니다.
 
