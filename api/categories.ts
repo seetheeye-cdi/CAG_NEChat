@@ -1,9 +1,8 @@
-import { loadChunks, getAllCategories } from './lib/chunkSearch';
-
 let initialized = false;
 async function ensureInit() {
   if (!initialized) {
-    await loadChunks();
+    const mod = await import('./lib/chunkSearch');
+    await mod.loadChunks();
     initialized = true;
   }
 }
@@ -15,7 +14,8 @@ export default async function handler(req: any, res: any) {
       return;
     }
     await ensureInit();
-    const categories = getAllCategories();
+    const mod = await import('./lib/chunkSearch');
+    const categories = mod.getAllCategories();
     res.status(200).json({ categories });
   } catch (err: any) {
     res.status(500).json({ error: '카테고리 목록을 가져올 수 없습니다.' });

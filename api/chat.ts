@@ -38,8 +38,9 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    // 검색
-    const relevantChunks = searchChunks(message, 8, 40);
+    // 검색 모듈을 안전하게 로드
+    const mod = await import('./lib/chunkSearch');
+    const relevantChunks = mod.searchChunks(message, 8, 40);
     const seen = new Set<string>();
     const uniqueRelevant = relevantChunks.filter(c => {
       const key = c.metadata.pdfUrl || `${c.metadata.fileName || ''}-${c.metadata.page || ''}-${c.index}`;
