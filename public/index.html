@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>선거법 사례 안내 챗봇</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚖️ 선거법 사례 안내 챗봇</h1>
+            <p class="subtitle">제21대 대통령선거 정치관계법 사례예시집 기반 AI 도우미</p>
+        </header>
+        
+        <main>
+            <div class="chat-container">
+                <div id="chat-messages" class="chat-messages">
+                    <div class="message bot">
+                        <div class="message-content">
+                            안녕하세요! 저는 선거법 사례 안내 도우미입니다.<br><br>
+                            제21대 대통령선거 정치관계법 사례예시집을 기반으로 다음과 같은 사항들을 안내해드릴 수 있습니다:<br>
+                            • 선거운동 방법 및 제한사항<br>
+                            • 정치자금 및 후원금 관련 규정<br>
+                            • 선거법 위반 사례와 처벌<br>
+                            • 선거사무소 운영 관련<br>
+                            • 공무원의 선거 중립 의무<br>
+                            • 기타 선거법 관련 문의<br><br>
+                            구체적인 사례와 법조문을 참고하여 답변드리겠습니다. 무엇을 도와드릴까요?
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="input-container">
+                    <input 
+                        type="text" 
+                        id="user-input" 
+                        placeholder="선거법 관련 질문을 입력하세요..."
+                        autocomplete="off"
+                    >
+                    <button id="send-button">전송</button>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>⚠️ 이 챗봇은 참고용이며, 정확한 법적 조언은 관할 선거관리위원회에 문의하시기 바랍니다.</p>
+        </footer>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
