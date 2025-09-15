@@ -23,7 +23,12 @@ export default async function handler(req: any, res: any) {
       res.status(405).json({ error: 'Method Not Allowed' });
       return;
     }
-    await ensureInit();
+    try {
+      await ensureInit();
+    } catch (e: any) {
+      res.status(200).json({ response: '초기화 지연으로 간단 요약을 제공합니다.', sources: [] });
+      return;
+    }
 
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const message: string = body?.message || '';

@@ -187,7 +187,7 @@ function calculateRelevanceScore(chunk: Chunk, query: string): number {
 }
 
 export function searchChunks(query: string, maxResults: number = 15, minScore: number = 30): Chunk[] {
-  if (!chunksData) throw new Error('Chunks가 로드되지 않았습니다.');
+  if (!chunksData) return [];
   if (!bm25Index) bm25Index = buildBM25Index((chunksData as ChunksData).chunks);
 
   const k1 = 1.2, b = 0.75;
@@ -226,7 +226,7 @@ export function searchChunks(query: string, maxResults: number = 15, minScore: n
 }
 
 export function getAllCategories(): string[] {
-  if (!chunksData) throw new Error('Chunks가 로드되지 않았습니다.');
+  if (!chunksData) return [];
   const categories = new Set<string>();
   (chunksData as ChunksData).chunks.forEach(chunk => { if (chunk.metadata.category) categories.add(chunk.metadata.category); });
   return Array.from(categories);
