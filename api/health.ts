@@ -1,4 +1,4 @@
-import { loadChunks, getAllCategories } from '../src/chunkSearch';
+import { loadChunks, getAllCategories } from './lib/chunkSearch';
 
 let initialized = false;
 async function ensureInit() {

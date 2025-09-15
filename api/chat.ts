@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { loadChunks, searchChunks } from '../src/chunkSearch';
+import { loadChunks, searchChunks } from './lib/chunkSearch';
 
 let initialized = false;
 async function ensureInit() {
