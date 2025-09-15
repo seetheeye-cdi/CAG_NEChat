@@ -9,8 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "initCache": "tsx scripts/initCache.ts",
-    "ingest:build": "tsx scripts/ingest.ts",
-    "vercel-build": "tsc"
+    "ingest:build": "tsx scripts/ingest.ts"
   },
   "keywords": ["chatbot", "gemini", "cag", "nec"],
   "author": "",
