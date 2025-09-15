@@ -13,9 +13,33 @@ async function loadPdfJs() {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// NEC PDF info (제21대 대통령선거 정치관계법 사례예시집 최종)
-const PDF_TITLE = '제21대 대통령선거 정치관계법 사례예시집';
-const PDF_URL = 'https://www.nec.go.kr/common/board/Download.do?bcIdx=269351&cbIdx=1129&streFileNm=4bcf0eb5-39ad-4f85-a442-a1926ada3c36.pdf';
+// 처리 대상 문서 목록 (다운로드 URL은 텍스트 추출용, pdfUrl은 클릭용으로 #page 앵커를 붙여 사용)
+const SOURCES: Array<{
+  title: string;
+  downloadUrl: string; // 실제 PDF 바이너리 URL (Download.do)
+  pdfUrlBase: string;  // 클릭용 기본 URL (대부분 Download.do를 사용하고 #page=를 붙임)
+}> = [
+  {
+    title: '제21대 대통령선거 정치관계법 사례예시집',
+    downloadUrl: 'https://www.nec.go.kr/common/board/Download.do?bcIdx=269351&cbIdx=1129&streFileNm=4bcf0eb5-39ad-4f85-a442-a1926ada3c36.pdf',
+    pdfUrlBase: 'https://www.nec.go.kr/common/board/Download.do?bcIdx=269351&cbIdx=1129&streFileNm=4bcf0eb5-39ad-4f85-a442-a1926ada3c36.pdf#page='
+  },
+  {
+    title: '제21대 대통령선거 재외선거 위반사례예시집',
+    downloadUrl: 'https://www.nec.go.kr/common/board/Download.do?bcIdx=269343&cbIdx=1129&streFileNm=b2d27eab-e922-4742-b2d6-f24d54625d40.pdf',
+    pdfUrlBase: 'https://www.nec.go.kr/common/board/Download.do?bcIdx=269343&cbIdx=1129&streFileNm=b2d27eab-e922-4742-b2d6-f24d54625d40.pdf#page='
+  },
+  {
+    title: '제22대 국회의원선거 학생 등의 선거운동·정당활동 관련 정치관계법 사례 안내',
+    downloadUrl: 'https://img.nec.go.kr/common/board/Download.do?bcIdx=226669&cbIdx=1129&streFileNm=0de0f3ad-e2b1-4a8b-b617-0fb4cf41d1de.pdf',
+    pdfUrlBase: 'https://img.nec.go.kr/common/board/Download.do?bcIdx=226669&cbIdx=1129&streFileNm=0de0f3ad-e2b1-4a8b-b617-0fb4cf41d1de.pdf#page='
+  },
+  {
+    title: '제21대 대통령선거 정당·(예비)후보자 및 그 후원회의 정치자금 회계실무',
+    downloadUrl: 'https://www.nec.go.kr/common/board/Download.do?bcIdx=268777&cbIdx=1129&streFileNm=6cde5cfa-d057-457e-bfbe-655321cb31ac.pdf',
+    pdfUrlBase: 'https://www.nec.go.kr/common/board/Download.do?bcIdx=268777&cbIdx=1129&streFileNm=6cde5cfa-d057-457e-bfbe-655321cb31ac.pdf#page='
+  }
+];
 
 async function downloadPdfToBuffer(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
@@ -49,50 +73,45 @@ async function extractPageText(doc: any, pageNumber: number): Promise<string> {
   return normalizeWhitespace(merged);
 }
 
-async function buildChunksFromPdf(): Promise<any> {
+async function buildChunksFromSources(): Promise<any> {
   const pdfjs = await loadPdfJs();
-  const data = await downloadPdfToBuffer(PDF_URL);
-  const loadingTask = await pdfjs.getDocument({ data });
-  const pdfDoc = await loadingTask.promise;
-
   const chunks: Array<{ content: string; metadata: any; index: number }> = [];
 
-  // Per-page chunk with accurate clickable link using #page= query
-  // Use NEC viewer-independent link: most PDF viewers honor #page=
-  const pageLinkBase = `${PDF_URL}#page=`;
-
   let index = 0;
-  for (let p = 1; p <= pdfDoc.numPages; p++) {
-    const text = await extractPageText(pdfDoc, p);
-    // Skip empty pages
-    if (!text || text.length < 20) {
-      continue;
-    }
-    // Title heuristic: first non-empty line, else generic
-    const firstLine = (text.split('\n').find(l => l.trim().length > 0) || '').slice(0, 60);
-    const title = firstLine || `페이지 ${p}`;
+  for (const src of SOURCES) {
+    console.log(`다운로드 중: ${src.title}`);
+    const data = await downloadPdfToBuffer(src.downloadUrl);
+    const loadingTask = await pdfjs.getDocument({ data });
+    const pdfDoc = await loadingTask.promise;
 
-    chunks.push({
-      content: text,
-      metadata: {
-        category: '본문',
-        title,
-        type: 'page',
-        page: p,
-        fileName: PDF_TITLE,
-        pdfUrl: `${pageLinkBase}${p}`
-      },
-      index: index++
-    });
+    for (let p = 1; p <= pdfDoc.numPages; p++) {
+      const text = await extractPageText(pdfDoc, p);
+      if (!text || text.length < 20) continue;
+      const firstLine = (text.split('\n').find(l => l.trim().length > 0) || '').slice(0, 60);
+      const title = firstLine || `페이지 ${p}`;
+
+      chunks.push({
+        content: text,
+        metadata: {
+          category: '본문',
+          title,
+          type: 'page',
+          page: p,
+          fileName: src.title,
+          pdfUrl: `${src.pdfUrlBase}${p}`
+        },
+        index: index++
+      });
+    }
   }
 
   const chunksData = {
     metadata: {
-      source: 'nec_pdf_pages',
-      title: `${PDF_TITLE} (페이지 단위)`,
+      source: 'nec_multi_pdf_pages',
+      title: 'NEC 자료 (다중 PDF, 페이지 단위)',
+      sources: SOURCES.map(s => ({ title: s.title, pdfUrlBase: s.pdfUrlBase.replace(/#page=$/, '') })),
       totalChunks: chunks.length,
       createdAt: new Date().toISOString(),
-      pdfUrl: PDF_URL,
       disclaimer: '페이지 단위 추출 텍스트입니다. 도표/이미지는 누락될 수 있습니다.'
     },
     chunks
@@ -107,8 +126,8 @@ async function main() {
     await fs.mkdir(outDir, { recursive: true });
     const outPath = path.join(outDir, 'chunks.json');
 
-    console.log('NEC PDF를 페이지 단위로 처리 중...');
-    const chunksData = await buildChunksFromPdf();
+    console.log('NEC 다중 PDF를 페이지 단위로 처리 중...');
+    const chunksData = await buildChunksFromSources();
     await fs.writeFile(outPath, JSON.stringify(chunksData, null, 2), 'utf-8');
     console.log(`완료: ${outPath} (chunks: ${chunksData.chunks.length})`);
   } catch (err) {

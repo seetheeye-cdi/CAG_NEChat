@@ -27,6 +27,15 @@ await fastify.register(cors, {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 let model: any;
 
+// 표시용 텍스트 정리 (Private Use Area, Zero-width 등 제거)
+function cleanText(input: string): string {
+  return input
+    .replace(/[\uE000-\uF8FF]/g, '') // Private Use Area
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '') // zero-width
+    .replace(/\s+\n/g, '\n')
+    .trim();
+}
+
 // 모델 초기화
 async function initializeModel() {
   try {
@@ -76,19 +85,33 @@ fastify.post<{ Body: ChatRequest }>('/api/chat', async (request, reply) => {
       return reply.code(400).send({ error: '메시지가 필요합니다.' });
     }
 
-    // 관련 chunks 검색 (최대 3개, 최소 점수 50점 이상만 선택)
-    const relevantChunks = searchChunks(message, 3, 50);
+    // 관련 chunks 검색 (최대 8개, 동적 임계치 적용)
+    const relevantChunks = searchChunks(message, 8, 40);
     
     // 검색된 chunks로 컨텍스트 구성
     let context = '';
     const sources: ChatResponse['sources'] = [];
+    // 동일 페이지(동일 링크) 중복 제거
+    const uniqueRelevant = (() => {
+      const uniq: typeof relevantChunks = [];
+      const seen = new Set<string>();
+      for (const chunk of relevantChunks) {
+        const key = chunk.metadata.pdfUrl || `${chunk.metadata.fileName || ''}-${chunk.metadata.page || ''}-${chunk.index}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniq.push(chunk);
+        }
+      }
+      return uniq;
+    })();
     
-    if (relevantChunks.length > 0) {
-      context = relevantChunks.map((chunk, idx) => {
+    if (uniqueRelevant.length > 0) {
+      context = uniqueRelevant.map((chunk, idx) => {
         sources.push({
-          title: chunk.metadata.title || `참조 ${idx + 1}`,
+          // 타이틀의 특수 글리프( 등) 제거: 페이지 표기 우선
+          title: chunk.metadata.page ? `p.${chunk.metadata.page}` : (chunk.metadata.caseNumber || `참조 ${idx + 1}`),
           category: chunk.metadata.category || '일반',
-          preview: chunk.content.substring(0, 100) + '...',
+          preview: cleanText(chunk.content).substring(0, 160) + '...',
           page: chunk.metadata.page,
           caseNumber: chunk.metadata.caseNumber,
           fileName: chunk.metadata.fileName,
@@ -100,8 +123,11 @@ fastify.post<{ Body: ChatRequest }>('/api/chat', async (request, reply) => {
         const pageInfo = chunk.metadata.page ? `, p.${chunk.metadata.page}` : '';
         const caseInfo = chunk.metadata.caseNumber ? `, ${chunk.metadata.caseNumber}` : '';
         const refInfo = `${chunk.metadata.fileName || '문서'}${caseInfo || pageInfo}`;
-          
-        return `[참조 ${idx + 1} - ${refInfo}]\n${chunk.content}`;
+        
+        // 모델 컨텍스트에는 페이지 스니펫만 삽입 (길이 제한)
+        const cleaned = cleanText(chunk.content);
+        const snippet = cleaned.length > 800 ? cleaned.slice(0, 800) : cleaned;
+        return `[참조 ${idx + 1} - ${refInfo}]\n${snippet}`;
       }).join('\n\n---\n\n');
     }
 
@@ -109,7 +135,7 @@ fastify.post<{ Body: ChatRequest }>('/api/chat', async (request, reply) => {
     const systemPrompt = `당신은 대한민국 중앙선거관리위원회의 "제21대 대통령선거 정치관계법 사례예시집"을 기반으로 답변하는 선거법 전문 도우미입니다.
 
 다음 원칙을 따라주세요:
-1. 제공된 참조 자료의 내용을 정확하게 인용하여 답변합니다.
+1. 제공된 참조 자료의 내용을 정확하게 인용하여 답변합니다. 응답에 참조가 포함된 경우 "정보 없음"이라고 답하지 마세요.
 2. 선거법과 관련된 질문에는 구체적인 법조문과 사례를 참조합니다.
 3. 불확실한 내용은 추측하지 않고, 참조 자료에 없는 내용임을 명시합니다.
 4. 한국어로 친절하고 명확하게 답변합니다.
@@ -124,7 +150,7 @@ fastify.post<{ Body: ChatRequest }>('/api/chat', async (request, reply) => {
 - 중요한 내용은 별도의 단락으로 구분하여 가독성을 높이세요.
 - 참조를 인용할 때는 반드시 [참조 번호 - 파일명, 사례 번호] 형식을 사용하세요.
 
-${context ? `다음은 질문과 관련된 참조 자료입니다 (관련성 높은 ${relevantChunks.length}개만 선택됨):\n\n${context}` : '관련 참조 자료를 찾을 수 없습니다.'}
+${context ? `다음은 질문과 관련된 참조 자료입니다 (관련성 높은 ${uniqueRelevant.length}개만 선택됨):\n\n${context}` : '관련 참조 자료를 찾을 수 없습니다.'}
 
 사용자 질문: ${message}`;
     
@@ -132,7 +158,7 @@ ${context ? `다음은 질문과 관련된 참조 자료입니다 (관련성 높
     const chat = model.startChat({
       history: history,
       generationConfig: {
-        temperature: 0.7,
+        temperature: 0.3,
         topP: 0.8,
         topK: 40,
         maxOutputTokens: 2048,
@@ -142,7 +168,29 @@ ${context ? `다음은 질문과 관련된 참조 자료입니다 (관련성 높
     // 프롬프트 전송
     const result = await chat.sendMessage(systemPrompt);
     const response = await result.response;
-    const text = response.text();
+    const rawText = response.text();
+
+    // 응답 텍스트 정리: 중복 참조 제거 및 특수문자 제거
+    let text = cleanText(rawText);
+    if (sources.length > 0) {
+      const usedKeys = new Set<string>();
+      sources.forEach((src, idx) => {
+        const key = src.pdfUrl || `${src.fileName || ''}-${src.page || ''}`;
+        const pattern = new RegExp(`\\[참조 ${idx + 1}[^\\]]*\\]`, 'g');
+        let first = true;
+        const pageInfo = src.page ? `, p.${src.page}` : '';
+        const caseInfo = src.caseNumber ? `, ${src.caseNumber}` : '';
+        const normalizedRef = `[참조 ${idx + 1} - ${src.fileName || '문서'}${caseInfo || pageInfo}]`;
+        text = text.replace(pattern, () => {
+          if (first && !usedKeys.has(key)) {
+            first = false;
+            usedKeys.add(key);
+            return normalizedRef;
+          }
+          return '';
+        });
+      });
+    }
 
     return reply.send({ 
       response: text,
@@ -186,6 +234,17 @@ fastify.get('/api/health', async (request, reply) => {
       mode: 'chunk-based',
       chunks: 'not loaded'
     });
+  }
+});
+
+// 루트 페이지 (index.html) 서빙
+fastify.get('/', async (request, reply) => {
+  try {
+    const indexPath = path.join(__dirname, '../public/index.html');
+    const html = await fs.readFile(indexPath, 'utf-8');
+    reply.header('Content-Type', 'text/html; charset=utf-8').send(html);
+  } catch (error) {
+    return reply.code(500).send('index.html을 로드할 수 없습니다.');
   }
 });
 

@@ -14,10 +14,16 @@ function createSourcesHTML(sources) {
     html += '<div class="sources-header">📚 참조 자료</div>';
     html += '<div class="sources-list">';
     
+    // 동일 링크 중복 제거 + 제목 특수문자 제거
+    const seen = new Set();
     sources.forEach((source, idx) => {
+        const key = source.pdfUrl || `${source.fileName || ''}-${source.page || ''}-${idx}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         const caseInfo = source.caseNumber ? `, ${source.caseNumber}` : '';
         const pageInfo = source.page ? `, p.${source.page}` : '';
         const fileInfo = source.fileName || '문서';
+        const cleanTitle = (source.page ? `p.${source.page}` : (source.caseNumber || `참조 ${idx + 1}`));
         
         html += `
             <div class="source-item">
@@ -26,15 +32,15 @@ function createSourcesHTML(sources) {
                     <div class="source-title">
                         ${source.pdfUrl ? 
                             `<a href="${source.pdfUrl}" target="_blank" class="source-link">
-                                ${source.title}
+                                ${cleanTitle}
                                 <span class="source-info">${fileInfo}${caseInfo}${pageInfo}</span>
                                 <span class="source-icon">🔗</span>
                             </a>` : 
-                            `${source.title} <span class="source-info">${fileInfo}${caseInfo}${pageInfo}</span>`
+                            `${cleanTitle} <span class="source-info">${fileInfo}${caseInfo}${pageInfo}</span>`
                         }
                     </div>
                     <div class="source-category">카테고리: ${source.category}</div>
-                    <div class="source-preview">${source.preview}</div>
+                    <div class="source-preview">${(source.preview || '').replace(/[\uE000-\uF8FF]/g, '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '')}</div>
                     ${source.note ? `<div class="source-note">⚠️ ${source.note}</div>` : ''}
                 </div>
             </div>
@@ -53,21 +59,32 @@ function addMessage(content, isUser = false, sources = null) {
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     
-    // 답변 내용에서 참조 표시를 클릭 가능한 링크로 변환
+    // 답변 내용에서 참조 표시를 클릭 가능한 링크로 변환 (동일 출처는 1회만 표시, 나머지는 제거)
     if (!isUser && sources && sources.length > 0) {
-        let processedContent = content;
+        // 전역 특수문자 정리 (PUA, zero-width)
+        let processedContent = (content || '').replace(/[\uE000-\uF8FF]/g, '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+        const usedByKey = new Set();
         sources.forEach((source, idx) => {
-            if (source.pdfUrl) {
-                const refPattern = new RegExp(`\\[참조 ${idx + 1}[^\\]]*\\]`, 'g');
-                const caseInfo = source.caseNumber ? `, ${source.caseNumber}` : '';
-                const pageInfo = source.page ? `, p.${source.page}` : '';
-                const replacement = `<a href="${source.pdfUrl}" target="_blank" class="inline-ref">[참조 ${idx + 1} - ${source.fileName || '문서'}${caseInfo || pageInfo}]</a>`;
-                processedContent = processedContent.replace(refPattern, replacement);
-            }
+            if (!source) return;
+            const key = source.pdfUrl || `${source.fileName || ''}-${source.page || ''}-${idx}`;
+            const caseInfo = source.caseNumber ? `, ${source.caseNumber}` : '';
+            const pageInfo = source.page ? `, p.${source.page}` : '';
+            const link = source.pdfUrl ? `<a href="${source.pdfUrl}" target="_blank" class="inline-ref">[참조 ${idx + 1} - ${source.fileName || '문서'}${caseInfo || pageInfo}]</a>` : `[참조 ${idx + 1} - ${source.fileName || '문서'}${caseInfo || pageInfo}]`;
+            const pattern = new RegExp(`\\[참조 ${idx + 1}[^\\]]*\\]`, 'g');
+            let firstDone = false;
+            processedContent = processedContent.replace(pattern, () => {
+                if (!usedByKey.has(key) && !firstDone) {
+                    usedByKey.add(key);
+                    firstDone = true;
+                    return link;
+                }
+                // 동일 출처의 추가 표기는 제거
+                return '';
+            });
         });
         contentDiv.innerHTML = processedContent;
     } else {
-        contentDiv.innerHTML = content;
+        contentDiv.innerHTML = (content || '').replace(/[\uE000-\uF8FF]/g, '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
     }
     
     // 출처 정보 추가 (봇 메시지에만)
