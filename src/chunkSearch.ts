@@ -89,8 +89,15 @@ function buildBM25Index(chunks: Chunk[]): BM25Index {
 }
 
 export async function loadChunks(): Promise<void> {
-  const chunksPath = path.join(__dirname, '../data/chunks.json');
-  const data = await fs.readFile(chunksPath, 'utf-8');
+  // 1) TS 실행(개발) 경로 기준, 2) 배포/서버리스에서의 CWD 기준 순으로 시도
+  const primaryPath = path.join(__dirname, '../data/chunks.json');
+  const fallbackPath = path.join(process.cwd(), 'data/chunks.json');
+  let data: string;
+  try {
+    data = await fs.readFile(primaryPath, 'utf-8');
+  } catch {
+    data = await fs.readFile(fallbackPath, 'utf-8');
+  }
   chunksData = JSON.parse(data);
   bm25Index = buildBM25Index(chunksData.chunks);
   console.log(`Chunks 로드 완료: ${chunksData.chunks.length}개`);
@@ -102,6 +109,7 @@ function calculateRelevanceScore(chunk: Chunk, query: string): number {
   const contentLower = chunk.content.toLowerCase();
   const titleLower = chunk.metadata.title?.toLowerCase() || '';
   const categoryLower = chunk.metadata.category?.toLowerCase() || '';
+  const fileNameLower = chunk.metadata.fileName?.toLowerCase() || '';
   
   let score = 0;
   
@@ -116,6 +124,9 @@ function calculateRelevanceScore(chunk: Chunk, query: string): number {
     '자동동보통신': ['자동 동보통신', '82의5', '문자메시지', '문자'],
     '공무원': ['선거중립', '선거관여', '§85', '85', '§86', '86', '지방자치단체장', '지자체장'],
     '선거운동': ['§58', '58', '정의'],
+    '재외선거': ['재외', '국외부재자', '해외투표', '영사관투표'],
+    '학생': ['18세', '미성년', '학교', '교내'],
+    '정치자금': ['후원금', '회계책임자', '선거비용', '회계실무']
   };
   const expandedWords = new Set<string>(queryWords);
   queryWords.forEach(w => {
@@ -164,6 +175,11 @@ function calculateRelevanceScore(chunk: Chunk, query: string): number {
     if (categoryLower.includes(word)) {
       score += 10 * keywordWeight;
     }
+
+    // 파일명(문서명)에 포함된 경우 가중치 (문서 단위 매칭 강화)
+    if (fileNameLower.includes(word)) {
+      score += 12 * keywordWeight;
+    }
     
     // 내용에 포함된 경우 (빈도수 고려)
     const contentMatches = (contentLower.match(new RegExp(word, 'g')) || []).length;
@@ -202,6 +218,17 @@ function calculateRelevanceScore(chunk: Chunk, query: string): number {
     if (contentLower.includes('§85') || contentLower.includes('§86') || contentLower.includes('공무원') || titleLower.includes('공무원')) {
       score += 140;
     }
+  }
+
+  // 재외선거/학생/정치자금 문서명과의 강한 정합성 부스팅
+  if (/재외선거|국외부재자|재외|해외투표|영사관/.test(queryLower)) {
+    if (fileNameLower.includes('재외선거')) score += 200;
+  }
+  if (/학생|미성년|18세/.test(queryLower)) {
+    if (fileNameLower.includes('학생') || fileNameLower.includes('정당활동')) score += 160;
+  }
+  if (/정치자금|회계|후원금/.test(queryLower)) {
+    if (fileNameLower.includes('정치자금') || fileNameLower.includes('회계실무')) score += 180;
   }
 
   // 도메인 개념 부스팅
@@ -250,7 +277,7 @@ export function searchChunks(query: string, maxResults: number = 15, minScore: n
   });
 
   // 키워드 가중치와 결합
-  const scoredChunks = chunksData.chunks.map((chunk, idx) => {
+  const scoredChunks = (chunksData as ChunksData).chunks.map((chunk, idx) => {
     const bm = scores.get(idx) || 0;
     const kw = calculateRelevanceScore(chunk, query);
     const combined = bm * 1.0 + kw * 0.2; // 가중 합산
@@ -260,7 +287,11 @@ export function searchChunks(query: string, maxResults: number = 15, minScore: n
   // 점수순으로 정렬
   const sorted = scoredChunks.sort((a, b) => b.score - a.score);
   const topScore = sorted.length ? sorted[0].score : 0;
-  const dynamicThreshold = Math.max(minScore, Math.floor(topScore * 0.5));
+  // 짧고 포괄적인 질의(토큰 수 <= 2)는 임계치 완화
+  const isShortQuery = qTokens.length <= 2;
+  const alpha = isShortQuery ? 0.4 : 0.5;
+  const minScoreAdjusted = isShortQuery ? Math.max(20, minScore - 10) : minScore;
+  const dynamicThreshold = Math.max(minScoreAdjusted, Math.floor(topScore * alpha));
   let relevantChunks = sorted
     .filter(item => item.score >= dynamicThreshold)
     .slice(0, maxResults)
@@ -270,7 +301,7 @@ export function searchChunks(query: string, maxResults: number = 15, minScore: n
   const q = query.toLowerCase();
   const needInternet = /(sns|인터넷|정보통신망|홈페이지|전자우편|이메일)/.test(q);
   if (needInternet) {
-    const extra = chunksData!.chunks.filter(c => {
+    const extra = (chunksData as ChunksData).chunks.filter(c => {
       const t = (c.content || '').toLowerCase();
       return /(인터넷\s*홈페이지|전자우편|sns|카카오톡|유튜브|블로그)/.test(t);
     }).slice(0, 6);
@@ -284,10 +315,64 @@ export function searchChunks(query: string, maxResults: number = 15, minScore: n
     });
   }
 
+  // 재외선거 강화
+  const needAbroad = /(재외선거|국외부재자|재외|해외투표|영사관)/.test(q);
+  if (needAbroad) {
+    const extra = (chunksData as ChunksData).chunks.filter(c => {
+      const t = (c.content || '').toLowerCase();
+      const f = (c.metadata.fileName || '').toLowerCase();
+      return f.includes('재외선거') || /(재외선거|국외부재자|재외|해외투표|영사관)/.test(t);
+    }).slice(0, 8);
+    const seen = new Set(relevantChunks.map(c => `${c.metadata.pdfUrl}-${c.index}`));
+    extra.forEach(c => {
+      const key = `${c.metadata.pdfUrl}-${c.index}`;
+      if (!seen.has(key) && relevantChunks.length < maxResults) {
+        seen.add(key);
+        relevantChunks.push(c);
+      }
+    });
+  }
+
+  // 학생/미성년 강화
+  const needStudent = /(학생|미성년|18세)/.test(q);
+  if (needStudent) {
+    const extra = (chunksData as ChunksData).chunks.filter(c => {
+      const t = (c.content || '').toLowerCase();
+      const f = (c.metadata.fileName || '').toLowerCase();
+      return f.includes('학생') || /(학생|미성년|18세|학교|교내)/.test(t);
+    }).slice(0, 8);
+    const seen = new Set(relevantChunks.map(c => `${c.metadata.pdfUrl}-${c.index}`));
+    extra.forEach(c => {
+      const key = `${c.metadata.pdfUrl}-${c.index}`;
+      if (!seen.has(key) && relevantChunks.length < maxResults) {
+        seen.add(key);
+        relevantChunks.push(c);
+      }
+    });
+  }
+
+  // 정치자금/회계 강화
+  const needFinance = /(정치자금|회계|후원금|회계책임자|선거비용)/.test(q);
+  if (needFinance) {
+    const extra = (chunksData as ChunksData).chunks.filter(c => {
+      const t = (c.content || '').toLowerCase();
+      const f = (c.metadata.fileName || '').toLowerCase();
+      return f.includes('정치자금') || f.includes('회계실무') || /(정치자금|회계|후원금|회계책임자|선거비용)/.test(t);
+    }).slice(0, 8);
+    const seen = new Set(relevantChunks.map(c => `${c.metadata.pdfUrl}-${c.index}`));
+    extra.forEach(c => {
+      const key = `${c.metadata.pdfUrl}-${c.index}`;
+      if (!seen.has(key) && relevantChunks.length < maxResults) {
+        seen.add(key);
+        relevantChunks.push(c);
+      }
+    });
+  }
+
   // 연설/확성장치/공개장소 강화
   const needSpeech = /(연설|대담|공개장소|마이크|확성장치|말\(言\))/i.test(query);
   if (needSpeech) {
-    const extra = chunksData!.chunks.filter(c => {
+    const extra = (chunksData as ChunksData).chunks.filter(c => {
       const t = (c.content || '').toLowerCase();
       return /(공개장소\s*연설|연설\s*·\s*대담|확성장치|말\(言\)|전화를\s*이용)/.test(t);
     }).slice(0, 6);
