@@ -1,10 +1,10 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { loadChunks, searchChunks } from './lib/chunkSearch';
 
 let initialized = false;
 async function ensureInit() {
   if (!initialized) {
-    await loadChunks();
+    const mod = await import('./lib/chunkSearch');
+    await mod.loadChunks();
     initialized = true;
   }
 }

@@ -1,5 +1,6 @@
-import fs from 'fs/promises';
+import { promises as fs } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 interface Chunk {
   content: string;
@@ -79,10 +80,16 @@ function buildBM25Index(chunks: Chunk[]): BM25Index {
 }
 
 export async function loadChunks(): Promise<void> {
-  const candidates = [
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+
+  const candidates: string[] = [
     path.join(process.cwd(), 'data/chunks.json'),
-    path.join(process.cwd(), '../data/chunks.json')
+    path.join(__dirname, '../../data/chunks.json'),
+    path.join(__dirname, '../data/chunks.json'),
+    path.join('/var/task', 'data/chunks.json')
   ];
+
   let lastErr: any;
   for (const p of candidates) {
     try {
