@@ -2,9 +2,7 @@
   "version": 2,
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": [
-        "data/chunks.json"
-      ]
+      "includeFiles": "data/chunks.json"
     }
   },
   "routes": [
