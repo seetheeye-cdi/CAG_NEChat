@@ -98,9 +98,10 @@ export async function loadChunks(): Promise<void> {
   } catch {
     data = await fs.readFile(fallbackPath, 'utf-8');
   }
-  chunksData = JSON.parse(data);
-  bm25Index = buildBM25Index(chunksData.chunks);
-  console.log(`Chunks 로드 완료: ${chunksData.chunks.length}개`);
+  const parsed: ChunksData = JSON.parse(data);
+  chunksData = parsed;
+  bm25Index = buildBM25Index(parsed.chunks);
+  console.log(`Chunks 로드 완료: ${parsed.chunks.length}개`);
 }
 
 // 단순 키워드 점수 계산
@@ -254,7 +255,7 @@ export function searchChunks(query: string, maxResults: number = 15, minScore: n
     throw new Error('Chunks가 로드되지 않았습니다.');
   }
   if (!bm25Index) {
-    bm25Index = buildBM25Index(chunksData.chunks);
+    bm25Index = buildBM25Index((chunksData as ChunksData).chunks);
   }
   
   // BM25 점수 계산
@@ -455,7 +456,7 @@ export function getChunksByCategory(category: string): Chunk[] {
     throw new Error('Chunks가 로드되지 않았습니다.');
   }
   
-  return chunksData.chunks.filter(
+  return (chunksData as ChunksData).chunks.filter(
     chunk => chunk.metadata.category?.toLowerCase() === category.toLowerCase()
   );
 }
@@ -467,7 +468,7 @@ export function getAllCategories(): string[] {
   }
   
   const categories = new Set<string>();
-  chunksData.chunks.forEach(chunk => {
+  (chunksData as ChunksData).chunks.forEach(chunk => {
     if (chunk.metadata.category) {
       categories.add(chunk.metadata.category);
     }
